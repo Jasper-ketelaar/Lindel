@@ -4,17 +4,15 @@
 import pickle as pkl
 import os,sys,csv,re
 
-from tqdm import tqdm_notebook as tqdm
-import pylab as pl
+from tqdm.notebook import tqdm
 import numpy as np
+from tensorflow.keras.callbacks import EarlyStopping
+from tensorflow.keras.layers import Dense, Input, Flatten
+from tensorflow.keras.models import Sequential, load_model
+from tensorflow.keras.regularizers import l2, l1
 
-from keras.callbacks import EarlyStopping
-from keras.layers import Dense, Input, Flatten
-from keras.models import Sequential, load_model
-from keras.regularizers import l2, l1
-from Modeling.gen_features import *
-
-
+# Ignore KMP Duplicate errors due to OSX v
+os.environ['KMP_DUPLICATE_LIB_OK']='True'
 # Define useful functions
 def mse(x, y):
     return ((x-y)**2).mean()
@@ -47,16 +45,16 @@ def onehotencoder(seq):
 #threshold = sys.argv[1]
 
 
-workdir  = sys.argv[1]
+datadir  = sys.argv[1]
 fname    = sys.argv[2]
 
-label,rev_index,features = pkl.load(open(workdir+'feature_index_all.pkl','rb'))
-feature_size = len(features) + 384 
-data     = np.loadtxt(workdir+fname, delimiter="\t", dtype=str)
+label,rev_index,features = pkl.load(open(datadir + 'feature_index_all.pkl', 'rb'))
+feature_size = len(features) + 384
+data     = np.loadtxt(datadir + fname, delimiter="\t", dtype=str)
 Seqs = data[:,0]
 data = data[:,1:].astype('float32')
 
-# Sum up deletions and insertions to 
+# Sum up deletions and insertions to
 X = data[:,:feature_size]
 y = data[:, feature_size:]
 
@@ -65,8 +63,9 @@ idx = np.arange(len(y))
 np.random.shuffle(idx)
 X, y = X[idx], y[idx]
 train_size = round(len(data) * 0.9) if 'ForeCasT' in fname else 3900
-valid_size = round(len(data) * 0.1) if 'ForeCasT' in fname else 450 
+valid_size = round(len(data) * 0.1) if 'ForeCasT' in fname else 450
 
+print(train_size)
 Seq_train = Seqs[idx]
 x_train,x_valid = [],[]
 y_train,y_valid = [],[]
@@ -75,7 +74,7 @@ for i in range(train_size):
         y_train.append(y[i,-21:]/sum(y[i,-21:]))
         x_train.append(onehotencoder(Seq_train[i][-6:]))
 for i in range(train_size,len(Seq_train)):
-    if 1> sum(y[i,-21:])>0 : 
+    if 1> sum(y[i,-21:])>0 :
         y_valid.append(y[i,-21:]/sum(y[i,-21:]))
         x_valid.append(onehotencoder(Seq_train[i][-6:]))
 
@@ -92,7 +91,7 @@ for l in tqdm(lambdas):
     model = Sequential()
     model.add(Dense(21,  activation='softmax', input_shape=(size_input,), kernel_regularizer=l2(l)))
     model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['mse'])
-    model.fit(x_train, y_train, epochs=100, validation_data=(x_valid, y_valid), 
+    model.fit(x_train, y_train, epochs=100, validation_data=(x_valid, y_valid),
               callbacks=[EarlyStopping(patience=1)], verbose=0)
     y_hat = model.predict(x_valid)
     errors_l2.append(mse(y_hat, y_valid))
@@ -102,14 +101,14 @@ for l in tqdm(lambdas):
     model = Sequential()
     model.add(Dense(21,  activation='softmax', input_shape=(size_input,), kernel_regularizer=l1(l)))
     model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['mse'])
-    model.fit(x_train, y_train, epochs=100, validation_data=(x_valid, y_valid), 
+    model.fit(x_train, y_train, epochs=100, validation_data=(x_valid, y_valid),
               callbacks=[EarlyStopping(patience=1)], verbose=0)
     y_hat = model.predict(x_valid)
     errors_l1.append(mse(y_hat, y_valid))
 
 
-np.save(workdir+'mse_l1_ins.npy',errors_l1)
-np.save(workdir+'mse_l2_ins.npy',errors_l2)
+np.save(datadir + 'mse_l1_ins.npy', errors_l1)
+np.save(datadir + 'mse_l2_ins.npy', errors_l2)
 
 # final model
 l = lambdas[np.argmin(errors_l1)]
@@ -117,10 +116,10 @@ np.random.seed(0)
 model = Sequential()
 model.add(Dense(21, activation='softmax', input_shape=(size_input,), kernel_regularizer=l1(l)))
 model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['mse'])
-history = model.fit(x_train, y_train, epochs=100, validation_data=(x_valid, y_valid), 
+history = model.fit(x_train, y_train, epochs=100, validation_data=(x_valid, y_valid),
           callbacks=[EarlyStopping(patience=1)], verbose=0)
 
-model.save(workdir+'L1_ins.h5')
+model.save(datadir + 'L1_ins.h5')
 
 
 l = lambdas[np.argmin(errors_l2)]
@@ -128,7 +127,7 @@ np.random.seed(0)
 model = Sequential()
 model.add(Dense(21, activation='softmax', input_shape=(size_input,), kernel_regularizer=l2(l)))
 model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['mse'])
-history = model.fit(x_train, y_train, epochs=100, validation_data=(x_valid, y_valid), 
+history = model.fit(x_train, y_train, epochs=100, validation_data=(x_valid, y_valid),
           callbacks=[EarlyStopping(patience=1)], verbose=0)
 
-model.save(workdir+'L2_ins.h5')
+model.save(datadir + 'L2_ins.h5')
