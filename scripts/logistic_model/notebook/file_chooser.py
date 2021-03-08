@@ -1,7 +1,9 @@
 import os
+
 from ipywidgets import Dropdown, Text, Select, Button, HTML
 from ipywidgets import Layout, GridBox, HBox, VBox
-from .utils import get_subpaths, get_dir_contents
+
+from scripts.logistic_model.notebook.utils import get_subpaths, get_dir_contents
 
 
 class FileChooser(VBox):
