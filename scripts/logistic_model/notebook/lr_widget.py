@@ -57,7 +57,7 @@ class LRWidget(VBox):
     def on_start_clicked(self, _):
         self._start.disabled = True
         self._start.description = 'Training...'
-        self.model.start()
+        self.model.split_and_train()
 
     def _render_multi_plot(self, errors_l1, errors_l2):
         x = self.model.lambdas

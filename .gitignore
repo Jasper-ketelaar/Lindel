@@ -4,3 +4,4 @@ cwd/
 venv/
 *.ipynb_checkpoints/
 *__pycache__*
+results/

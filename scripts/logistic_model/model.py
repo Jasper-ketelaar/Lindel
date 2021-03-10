@@ -9,8 +9,6 @@ from tensorflow.keras.layers import Dense
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.regularizers import l2, l1
 from tensorflow.python.keras.regularizers import Regularizer
-import pydot
-from tensorflow.python.keras.utils.vis_utils import plot_model
 
 
 def mse(x, y):
@@ -113,9 +111,7 @@ class LRModel(ABC):
         self._feature_size = feature_size
         self._save_directory = save_directory
         self._name = title
-        data_len_ignored = round(len(data) * ignore_proportion)
-        print(data_len_ignored)
-        self._data = data[data_len_ignored:, :]
+        self._data = data
         self._seqs = self._data[:, 0]
         self._data = self._data[:, 1:].astype('float32')
         self._x = self._data[:, :feature_size]
@@ -134,6 +130,7 @@ class LRModel(ABC):
         self._y = self._y[self._idx]
         self._seq_train = self._seqs[self._idx]
         self._observers = []
+        self._model = None
 
     @abstractmethod
     def split_sets(self):
@@ -150,7 +147,7 @@ class LRModel(ABC):
     def add_observer(self, observer):
         self._observers.append({
             'observer': observer,
-            'params': observer.__code__.co_varnames[1:observer.__code__.co_argcount]
+            'params': observer.__code__.co_varnames[0:observer.__code__.co_argcount]
         })
 
     def _notify_observers(self, **kwargs):
@@ -158,6 +155,8 @@ class LRModel(ABC):
 
         def _notify_observer():
             params: Tuple[str] = observer['params']
+            if 'self' in params:
+                params = params[1:]
             if len(params) != key_len:
                 return
 
@@ -171,12 +170,29 @@ class LRModel(ABC):
         for observer in self.observers:
             _notify_observer()
 
-    def _train_model(self):
+    def _train_model(self, train_l1=True, train_l2=True):
         x_train, x_valid = np.array(self.x_train), np.array(self.x_valid)
         y_train, y_valid = np.array(self.y_train), np.array(self.y_valid)
-        errors_l1 = self._train_model_reg(x_train, x_valid, y_train, y_valid)
-        errors_l2 = self._train_model_reg(x_train, x_valid, y_train, y_valid, regularizer=l2)
-        self._notify_observers(errors_l1=errors_l1, errors_l2=errors_l2)
+        errors_l2 = []
+        min_l2 = -1
+        errors_l1 = []
+        min_l1 = -1
+
+        if train_l1 is True:
+            errors_l1, model_l1, min_l1 = self._train_model_reg(x_train, x_valid, y_train, y_valid)
+
+        if train_l2 is True:
+            errors_l2, model_l2, min_l2 = self._train_model_reg(x_train, x_valid, y_train, y_valid, regularizer=l2)
+
+        if train_l1 is True and train_l2 is True:
+            self._notify_observers(errors_l1=errors_l1, errors_l2=errors_l2)
+
+        if train_l1 is False:
+            self._model = model_l2
+        elif train_l2 is False:
+            self._model = model_l1
+        else:
+            self._model = model_l1 if errors_l1[min_l1] < errors_l2[min_l2] else model_l2
 
     def _train_model_reg(self,
                          x_train,
@@ -205,23 +221,23 @@ class LRModel(ABC):
             errors.append(mse(y_hat, y_valid))
             self._notify_observers(reg_name=reg_name, reg_val=reg_val)
 
-        if self._save_directory != "":
-            np.save(self._save_directory +
-                    "{0}_{1}.npy".format(reg_name, self.file_name_formatted), errors)
-            opt_reg = self.lambdas[np.argmin(errors)]
-            self._exec_sequential_model(
-                opt_reg,
-                x_train,
-                x_valid,
-                y_train,
-                y_valid,
-                size_input,
-                regularizer=regularizer,
-                save=True
-            )
+        np.save(self._save_directory +
+                "{0}_{1}.npy".format(reg_name, self.file_name_formatted), errors)
+        min_err = np.argmin(errors)
+        opt_reg = self.lambdas[min_err]
+        model = self._exec_sequential_model(
+            opt_reg,
+            x_train,
+            x_valid,
+            y_train,
+            y_valid,
+            size_input,
+            regularizer=regularizer
+        )
+        model.save(f'{self._save_directory}{reg_name}_{self.file_name_formatted}.h5')
 
         self._notify_observers(regularizer=reg_name, lambdas=self.lambdas, errors=errors)
-        return errors
+        return errors, model, min_err
 
     def _exec_sequential_model(
             self,
@@ -232,25 +248,20 @@ class LRModel(ABC):
             y_valid,
             size_input,
             metrics=None,
-            save=False,
             regularizer: Callable[[float], Regularizer] = l1
     ) -> Sequential:
         if metrics is None:
             metrics = ['mse']
         np.random.seed(0)
         model = Sequential()
-        model.add(
-            Dense(self.units(), activation='softmax', input_shape=(size_input,),
+        model.add(Dense(self.units(), activation='softmax', input_shape=(size_input,),
                   kernel_regularizer=regularizer(reg_val)))
         model.compile(optimizer='adam', loss=f'{self.get_loss_function()}', metrics=metrics)
         model.fit(x_train, y_train, epochs=100, validation_data=(x_valid, y_valid),
                   callbacks=[EarlyStopping(patience=1)], verbose=0)
 
-        if save is True and self._save_directory != "":
-            model.save(self._save_directory + f'L1_{self.name.replace(" ", "_").lower()}.h5')
-
         return model
 
-    def start(self):
+    def split_and_train(self, **kwargs):
         self.split_sets()
-        self._train_model()
+        self._train_model(**kwargs)
