@@ -1,86 +1,112 @@
 import pickle as pkl
-
 import numpy as np
 
-if __name__ == '__main__':
-    wdir = '../cwd/'
-    ref_table = {}
-    ref = open(f'{wdir}algient_NHEJ_guides_final.txt')
-    for line in ref:
-        seq, label = line.rstrip('\r\n').split('\t')
-        guide = seq[20:40]
-        if guide not in ref_table:
-            ref_table[guide] = [label]
+workdir = '../cwd/'
 
-    matrix_iterations = []
-    for i in range(1, 4):
-        rep_file = open(f'{wdir}NHEJ_rep{i}_final_matrix.pkl', 'rb')
-        rep_matrix = pkl.load(rep_file)
-        rep_file.close()
-        matrix_iterations.append(rep_matrix)
 
-    matrix_file = open(f'{wdir}NHEJ_MH_final_matrix.pkl', 'rb')
-    mh_matrix = pkl.load(matrix_file)
-    matrix_file.close()
-    matrix_iterations.append(mh_matrix)
+def indelclass(data):
+    indel = ''
+    if data[9] == 'del' and data[10] < 2 and data[11] < 30:
+        indel = str(data[10]) + '+' + str(data[11])
+    elif data[9] == 'ins' and data[11] < 3:
+        indel = str(data[11]) + '+' + data[12]
+    elif data[9] == 'ins' and data[11] > 2:
+        indel = '3'
+    return indel
 
-    features_file = open(f'{wdir}feature_index_all.pkl', 'rb')
-    label, rev_index, features = pkl.load(features_file)
-    features_file.close()
-    print(label)
-    freq = {}
-    for matrix in matrix_iterations:
 
-        for mh in matrix:
-            alg = ref_table[mh[6]]
-            indel = mh[9]
-            target = mh[6]
+def normalize(dict):
+    for guide in dict:
+        if dict[guide][2] > 0:
+            dict[guide][1] /= dict[guide][2]
+    return dict
 
-            if indel == 'del':
-                cut_site = mh[10] + mh[4]
-                print(mh)
-                mh_label = f'{"-" if mh[11] != 0 else ""}{mh[11]}+{cut_site}'
-                print(mh_label)
-                if mh_label in label:
-                    if target not in freq:
-                        freq[target] = {}
-                    mh_index = label[mh_label]
-                    if mh_index in freq[target]:
-                        freq[target][mh_index] += 1
-                    else:
-                        freq[target][mh_index] = 1
 
-            elif indel == 'ins':
-                ins_len = mh[-4]
-                ins_label = ''
-                if ins_len > 2:
-                    ins_label = '3'
-                else:
-                    ins_bp = mh[-3]
-                    if ins_bp == 'N':
-                        continue
-                    ins_label = f'{ins_len}+{ins_bp}'
-                if target not in freq:
-                    freq[target] = {}
-                label_idx = label[ins_label]
-                if label_idx in freq[target]:
-                    freq[target][label_idx] += 1
-                else:
-                    freq[target][label_idx] = 1
+def threshold(dict, threshold):
+    #temp = dict
+    for guide in dict.copy():
+        if dict[guide][2] <= threshold:
+            dict.pop(guide, None)
+    return dict
 
-    # Compare to their train set see if frequencies match at all
-    training = np.loadtxt(f'{wdir}Lindel_training.txt', delimiter="\t", dtype=str)
-    seq_training = training[:, 0]
 
-    # Dont care about features/seq only profile rn
-    seq_valid = training[:, 1 + 3033:]
-    for freq_entry in freq:
-        freq_sum = sum(freq[freq_entry].values())
-        for freq_entry_label in freq[freq_entry]:
-            freq[freq_entry][freq_entry_label] /= freq_sum
+def count(dict):
+    copies = 0
+    for guide in dict:
+        copies += dict[guide][2]
+    return copies
 
-    for index, seq_sample in enumerate(seq_training):
-        if seq_sample in freq:
-            vals = seq_valid[index]
-            for freq_idx in freq[seq_sample]:
-                print(f'{vals[freq_idx]}: {freq[seq_sample][freq_idx]}')
+
+# Creating dictionaries for guides of the various designs present in algient_NHEJ_final.txt
+ref = open(workdir + 'algient_NHEJ_guides_final.txt')
+table_home = {}
+table_70k = {}
+table_mh1 = {}
+table_mh2 = {}
+table_mh3 = {}
+table_May = {}
+
+for line in ref:
+    seq, label = line.rstrip('\r\n').split('\t')
+    guide = seq[20:40]
+
+    if label == '70k seq design' and guide not in table_70k:
+        table_70k[guide] = [seq, np.zeros(557), 0]
+    elif label == 'homing_design' and guide not in table_mh1:
+        table_home[guide] = [seq, np.zeros(557), 0]
+    elif label == 'mh_design_1' and guide not in table_mh1:
+        table_mh1[guide] = [seq, np.zeros(557), 0]
+    elif label == 'mh_design_2' and guide not in table_mh2:
+        table_mh2[guide] = [seq, np.zeros(557), 0]
+    elif label == 'mh_design_3' and guide not in table_mh3:
+        table_mh3[guide] = [seq, np.zeros(557), 0]
+    elif label == 'Maydata' and guide not in table_May:
+        table_May[guide] = [seq, np.zeros(557), 0]
+
+##Loading final matrix data
+rep1 = pkl.load(open(workdir + 'NHEJ_rep1_final_matrix.pkl', 'rb'))
+rep2 = pkl.load(open(workdir + 'NHEJ_rep2_final_matrix.pkl', 'rb'))
+rep3 = pkl.load(open(workdir + 'NHEJ_rep3_final_matrix.pkl', 'rb'))
+#mh = pkl.load(open(workdir + 'NHEJ_MH_final_matrix.pkl', 'rb'))
+combined = np.vstack([rep1, rep2, rep3])
+f2id = pkl.load(open(workdir + 'feature_index_all.pkl', 'rb'))
+
+#Dictionaries for unused features or missing 200mers
+missingClasses = {}
+missingSequence = {}
+
+final_data = combined
+for i in range(len(final_data[:, 6])):
+    indel = indelclass(final_data[i, :])
+    guide = final_data[i, 6]
+    design = final_data[i, 5]
+    try:
+        id1 = f2id[0][indel]
+    except KeyError:
+        missingClasses[indel] = [guide]
+    else:
+        try:
+            if design == 'wt':
+                table_70k[guide][1][id1] += 1
+                table_70k[guide][2] += 1
+            elif design == 'mh1':
+                table_mh1[guide][1][id1] += 1
+                table_mh1[guide][2] += 1
+            elif design == 'mh2':
+                table_mh2[guide][1][id1] += 1
+                table_mh2[guide][2] += 1
+            elif design == 'mh3':
+                table_mh3[guide][1][id1] += 1
+                table_mh3[guide][2] += 1
+        except KeyError:
+            missingSequence[guide] = [design]
+
+
+# Normalize events to generate probability density for indel classes
+table_70k = normalize(table_70k)
+# Remove entries with an insufficient number of reads
+th = 10
+table_70k = threshold(table_70k, th)
+
+print("Number of guides with more than " + str(th) + " read indel events: " + str(len(table_70k)))
+print("Average reads per guide with >10 read indel events: " + str(count(table_70k)/len(table_70k)))
