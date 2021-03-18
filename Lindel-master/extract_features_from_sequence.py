@@ -115,9 +115,13 @@ def onehotencoder(seq):
     return encode
 
 def create_train_matrix(seq,features):
-    # create a train / test matrix including the features.
-    # seq = 65 bp sequence with a PAM starting at position 33
-    # features = mh features from prereq
+    """
+
+    create a train / test matrix including the features.
+    seq = 65 bp sequence with a PAM starting at position 33
+    features = mh features from prereq
+
+    """
     ind = gen_indel(seq,30)
     guide = seq[13:33]
     mh_features = create_feature_array(features,ind)
