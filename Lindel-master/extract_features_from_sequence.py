@@ -1,7 +1,13 @@
 import numpy as np
 
 def label_mh(sample,mh_len):
-    '''Function to label microhomology in deletion events'''
+    '''Function to label microhomology in deletion events
+
+    @param sample: matrix containing all possible NHEJ outcomes of a sequence
+    @param mh_len: maximal length of the microhomology
+    @return: the deletion events that had a microhomology annotated in the matrix including length and position
+
+    '''
     for k in range(len(sample)):
         read = sample[k]
         # We are going to check for all deletions whether they contain an MH
@@ -21,8 +27,14 @@ def label_mh(sample,mh_len):
     return sample
 
 def gen_indel(sequence,cut_site):
-    '''This is the function that used to generate all possible unique indels and
-    list the redundant classes which will be combined after'''
+    '''
+    This is the function that used to generate all possible unique indels and
+    list the redundant classes which will be combined after
+
+    @param sequence: string of 65 bp with the PAM at 33-36.
+    @param cut_site: integer, where the cut is made
+    @return: matrix with all possible unique indels col0: indel, col1: reference, col2: 13, col3: del/ins/wt, col4: start indel, col5: length indel, col6: redundant mh features, col7: mh of not, col8: length mh
+    '''
     nt = ['A','T','C','G']
     up = sequence[0:cut_site]
     down = sequence[cut_site:]
@@ -68,6 +80,11 @@ def gen_indel(sequence,cut_site):
 def create_feature_array(ft,uniq_indels):
     '''Used to create microhomology feature array
        require the features and label
+
+       @param ft: microhomology feature dictionary to map features to indices
+       @param uniq_indels: output matrix of gen_indel
+       @return: array with a 1 on feature indices that are present in the sequence and 0 on feature indices that are not present in the sequence
+
     '''
     ft_array = np.zeros(len(ft))
     for read in uniq_indels:
@@ -88,7 +105,11 @@ def create_feature_array(ft,uniq_indels):
 
 
 def onehotencoder(seq):
-    '''convert to single and di-nucleotide hotencode'''
+    '''convert to single and di-nucleotide hotencode
+
+    @param seq: put in the guide sequence (20bp) to get the sequence features
+    @return: sequence features, 384 array if guide sequence was used as input
+    '''
     nt= ['A','T','C','G']
     head = []
     l = len(seq)
@@ -116,10 +137,11 @@ def onehotencoder(seq):
 
 def create_train_matrix(seq,features):
     """
-
     create a train / test matrix including the features.
-    seq = 65 bp sequence with a PAM starting at position 33
-    features = mh features from prereq
+
+    @param seq: 65 bp sequence with a PAM starting at position 33
+    @param features: mh features from prereq
+    @return: array with the seq, mh_features one hot encoded [1:2650] and the sequence features one hot encoded [2650:]
 
     """
     ind = gen_indel(seq,30)
