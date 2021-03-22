@@ -19,7 +19,6 @@ def normalize(dict):
     for guide in dict:
         if dict[guide][2] > 0:
             dict[guide][1] /= dict[guide][2]
-        print(sum(dict[guide][1]))
     return dict
 
 
@@ -35,15 +34,16 @@ def corrfilter(dict1, dict2, dict3, thr):
         c1, c2, c3 = 0, 0, 0
         temp = 0
         if gd in dict1 and gd in dict2:
-            c1 = np.correlate(dict1[gd][1], dict2[gd][1])
+            c1 = np.corrcoef(dict1[gd][1], dict2[gd][1])[1, 0]
             temp += 1
         if gd in dict1 and gd in dict3:
-            c2 = np.correlate(dict1[gd][1], dict3[gd][1])
+            c2 = np.corrcoef(dict1[gd][1], dict3[gd][1])[1, 0]
             temp += 1
         if gd in dict2 and gd in dict3:
-            c3 = np.correlate(dict2[gd][1], dict3[gd][1])
+            c3 = np.corrcoef(dict2[gd][1], dict3[gd][1])[1, 0]
             temp += 1
         if temp == 0 or (c1 + c2 + c3)/temp < thr:
+        #if temp == 0 or max(c1, c2, c3) < thr:
             dict1.pop(gd, None)
             dict2.pop(gd, None)
             dict3.pop(gd, None)
@@ -71,22 +71,22 @@ def indelevents(dict):
                 missingClasses[indel] = [guide]
             else:
                 missingClasses[indel] = [missingClasses[indel], guide]
-        else:
-            try:
-                if design == 'wt':
-                    table_70k[guide][1][id1] += 1   # Increases the indel event by 1 (are normalized elsewhere)
-                    table_70k[guide][2] += 1        # Will increase the total indel events by 1
-                elif design == 'mh1':
-                    table_mh1[guide][1][id1] += 1
-                    table_mh1[guide][2] += 1
-                elif design == 'mh2':
-                    table_mh2[guide][1][id1] += 1
-                    table_mh2[guide][2] += 1
-                elif design == 'mh3':
-                    table_mh3[guide][1][id1] += 1
-                    table_mh3[guide][2] += 1
-            except KeyError:                        # If there is no reference for the guide
-                missingSequence[guide] = [design]   # store it together with its design type
+            continue
+        try:
+            if design == 'wt':
+                table_70k[guide][1][id1] += 1   # Increases the indel event by 1 (are normalized elsewhere)
+                table_70k[guide][2] += 1        # Will increase the total indel events by 1
+            elif design == 'mh1':
+                table_mh1[guide][1][id1] += 1
+                table_mh1[guide][2] += 1
+            elif design == 'mh2':
+                table_mh2[guide][1][id1] += 1
+                table_mh2[guide][2] += 1
+            elif design == 'mh3':
+                table_mh3[guide][1][id1] += 1
+                table_mh3[guide][2] += 1
+        except KeyError:                        # If there is no reference for the guide
+            missingSequence[guide] = [design]   # store it together with its design type
     return table_70k
 
 # Creating dictionaries for guides of the various designs present in algient_NHEJ_final.txt
@@ -143,7 +143,7 @@ r2 = normalize(threshold(r2, th))
 r3 = normalize(threshold(r3, th))
 
 # Remove guides for which the three reps do not sufficiently correlate
-cth = 0.2
+cth = 0.75
 print(len({**r1, **r2, **r3}))
 r1, r2, r3 = corrfilter(r1, r2, r3, cth)
 print(len({**r1, **r2, **r3}))
@@ -154,7 +154,7 @@ for gd in {**r1, **r2, **r3}:
     a = 1
 
 
-print(len(merged))
+#print(len(merged))
 
 def targetseq(designseq):
     guide = designseq[20:40]
