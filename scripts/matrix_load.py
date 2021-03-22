@@ -138,9 +138,9 @@ r3 = indelevents(rep3)
 # Normalize events to generate probability density for indel classes
 # Remove entries with an insufficient number of reads
 th = 10
-r1 = normalize(threshold(r1, th))
-r2 = normalize(threshold(r2, th))
-r3 = normalize(threshold(r3, th))
+r1 = threshold(r1, th)
+r2 = threshold(r2, th)
+r3 = threshold(r3, th)
 
 # Remove guides for which the three reps do not sufficiently correlate
 cth = 0.75
@@ -151,10 +151,26 @@ print(len({**r1, **r2, **r3}))
 # Merges the normalized, correlation filtered reps.
 merged = {}
 for gd in {**r1, **r2, **r3}:
-    a = 1
+    count = 0
+    events = np.zeros(557)
+    if gd in r1:
+        seq = r1[gd][0]
+        events += r1[gd][1]
+        count += r1[gd][2]
+    elif gd in r2:
+        seq = r2[gd][0]
+        events += r2[gd][1]
+        count += r2[gd][2]
+    else:
+        seq = r3[gd][0]
+        events += r3[gd][1]
+        count += r3[gd][2]
+    merged[gd] = [seq, events, count]
 
 
-#print(len(merged))
+merged = normalize(merged)
+
+print(len(merged))
 
 def targetseq(designseq):
     guide = designseq[20:40]
