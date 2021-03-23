@@ -71,7 +71,7 @@ def indelevents(dict):
                 missingClasses[indel] = [guide]
             else:
                 missingClasses[indel] = [missingClasses[indel], guide]
-            continue
+            continue                            # proceed to the next iteration
         try:
             if design == 'wt':
                 table_70k[guide][1][id1] += 1   # Increases the indel event by 1 (are normalized elsewhere)
@@ -143,7 +143,7 @@ r2 = threshold(r2, th)
 r3 = threshold(r3, th)
 
 # Remove guides for which the three reps do not sufficiently correlate
-cth = 0.75
+cth = 0.7
 print(len({**r1, **r2, **r3}))
 r1, r2, r3 = corrfilter(r1, r2, r3, cth)
 print(len({**r1, **r2, **r3}))
@@ -157,11 +157,11 @@ for gd in {**r1, **r2, **r3}:
         seq = r1[gd][0]
         events += r1[gd][1]
         count += r1[gd][2]
-    elif gd in r2:
+    if gd in r2:
         seq = r2[gd][0]
         events += r2[gd][1]
         count += r2[gd][2]
-    else:
+    if gd in r3:
         seq = r3[gd][0]
         events += r3[gd][1]
         count += r3[gd][2]
