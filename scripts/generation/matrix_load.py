@@ -1,5 +1,10 @@
 import pickle as pkl
-from collections import defaultdict
+from typing import Callable, Tuple
+
+import numpy as np
+from scipy import stats
+
+from gen_mh_features import create_train_matrix
 
 workdir = '../cwd/'
 
@@ -11,32 +16,90 @@ class LindelProfile:
         return self._guide
 
     @property
-    def labels(self):
+    def labels_repetition(self) -> np.ndarray:
         return self._labels
+
+    @property
+    def labels(self):
+        labels_arr: np.ndarray = np.add(self._labels[0], self._labels[1])
+        labels_arr += self._labels[2]
+        return labels_arr
 
     @property
     def sequence(self):
         return self._sequence
 
-    def __init__(self, sequence, guide):
+    def __init__(self, sequence, guide, repetitions):
         self._sequence = sequence
         self._guide = guide
-        self._labels = defaultdict(int)
+        self._labels = np.array([np.zeros(557, dtype='float32') for _ in repetitions])
 
-    def __setitem__(self, label, index):
-        self._labels[label] = index
+    def reads(self):
+        return np.sum(self.labels)
 
-    def __getitem__(self, item):
-        return self.labels[item]
+    def partitioned_reads(self):
+        return np.array([sum(self.labels_repetition[x]) for x in range(0, len(self.labels_repetition))])
 
-    def __iadd__(self, other):
-        self._labels[other] += 1
+    def count_from_rep(self, rep: int, index: int):
+        self._labels[rep, index] += 1
 
-    def sum(self):
-        return sum(self.labels.values())
+    def average_rep_reads(self):
+        return self.partitioned_reads().mean()
+
+    def normalize(self):
+        reads = self.reads()
+        for i in range(len(self._labels)):
+            self._labels[i] /= reads
+
+    def get_mh_input(self):
+        index = self.sequence[100:].index(self.guide) + 100
+        return self.sequence[index - 13:index + 52]
+
+    @staticmethod
+    def class_label(data):
+        if data[9] == 'del' and data[10] < 2 and data[11] < 30:
+            return str(data[10]) + '+' + str(data[11])
+        elif data[9] == 'ins' and data[11] < 3:
+            return str(data[11]) + '+' + data[12]
+        elif data[9] == 'ins' and data[11] > 2:
+            return '3'
+
+        return ''
 
 
 class ProfileGenerator:
+
+    @property
+    def work_dir(self) -> str:
+        return self._work_dir
+
+    @property
+    def repetition_range(self) -> range:
+        return range(0, self._repetitions)
+
+    @property
+    def algient_file_name(self):
+        return self._algient_file
+
+    @property
+    def repetition_files(self):
+        return [self._rep_file.format(x + 1) for x in self.repetition_range]
+
+    @property
+    def repetition_matrices(self):
+        return self._repetition_matrices
+
+    @property
+    def lindel_profiles(self):
+        return self._profiles
+
+    @property
+    def labels_to_index(self):
+        return self._label_map
+
+    @property
+    def mh_features(self):
+        return self._features
 
     def __init__(
             self,
@@ -47,95 +110,179 @@ class ProfileGenerator:
             feature_index_file="feature_index_all.pkl"
     ):
         self._work_dir = work_dir
+        self._repetitions = repetitions
         self._algient_file = work_dir + algient_file
-        self._repetition_files = [work_dir + rep_file.format(x + 1) for x in range(repetitions)]
+        self._rep_file = work_dir + rep_file
         self._feature_index_file = work_dir + feature_index_file
+        self._profiles = self._init_profiles()
         self._repetition_matrices = self._load_repetitions()
-        self._label_map = self._load_feature_index()
-        self._frequencies = self._init_frequencies()
+        self._label_map, self._features = self._load_feature_index()
 
     def _load_repetitions(self):
         result = dict()
-        for rep, file_name in enumerate(self._repetition_files):
+        for rep in self.repetition_range:
+            file_name = self.repetition_files[rep]
             file = open(file_name, 'rb')
             rep_matrix = pkl.load(file)
             file.close()
             result[rep] = rep_matrix
+
         return result
 
     def _load_feature_index(self):
         file = open(self._feature_index_file, 'rb')
-        label, _, _ = pkl.load(file)
+        label, rev_index, features = pkl.load(file)
         file.close()
-        return label
+        return label, features
 
-    def _init_frequencies(self):
+    def _init_profiles(self):
         ref = open(self._algient_file)
         profiles = {}
         for line in ref:
-            seq, _ = line.rstrip('\r\n').split('\t')
-            profile = LindelProfile(seq, seq[20:40])
-            profiles[profile.guide] = profile
+            seq, label = line.rstrip('\r\n').split('\t')
+            guide = seq[20:40]
+            profile = LindelProfile(seq, guide, self.repetition_range)
+            profiles[guide] = profile
 
-        return [profiles for _ in range(len(self._repetition_matrices))]
+        return profiles
 
     def rep_matrix_row(self, rep, row):
         return self._repetition_matrices[rep][row]
 
-    def indel_class_label(self, row=0, rep=0, data=None):
-        if data is None:
-            data = self.rep_matrix_row(rep, row)
-
-        if data[9] == 'del' and data[10] < 2 and data[11] < 30:
-            return str(data[10]) + '+' + str(data[11])
-        elif data[9] == 'ins' and data[11] < 3:
-            return str(data[11]) + '+' + data[12]
-        elif data[9] == 'ins' and data[11] > 2:
-            return '3'
-        return ''
-
     def generate_insertions(self):
-        for matrix in self._repetition_matrices:
-            for row, column in enumerate(self._repetition_matrices[matrix]):
-                label = self.indel_class_label(data=column)
-                guide = column[6]
-                design = column[5]
-                try:
-                    index = self._label_map[label]
-                    if design == 'wt':
-                        matrix_freqs = self._frequencies[matrix]
-                        if guide in matrix_freqs:
-                            profile = matrix_freqs[guide]
-                            if profile is None:
-                                continue
-                            profile += index
-                except KeyError:
-                    pass
+        for rep in self.repetition_range:
+            matrix = self.repetition_matrices[rep]
+            for obs in matrix:
+                label = LindelProfile.class_label(obs)
+                if label not in self.labels_to_index:
+                    continue
+                guide = obs[6]
+                if guide not in self.lindel_profiles:
+                    continue
+
+                label_index = self.labels_to_index[label]
+
+                profile = self.lindel_profiles[guide]
+                profile.count_from_rep(rep, label_index)
+
+    def filter(self, filterer: Callable[[LindelProfile], bool], key=False, on=None):
+        if on is None:
+            on = self.lindel_profiles.items()
+
+        filter_profile: Callable[[Tuple[str, LindelProfile]], bool] = lambda item: filterer(
+            item[0 if key is True else 1])
+        self._profiles = dict(filter(filter_profile, on))
+        return self
+
+    def filter_corr_coef(self, corr_coef: float):
+        for gd in self.lindel_profiles:
+            profile = self.lindel_profiles[gd]
+            rep_reads = profile.labels_repetition
+            for idx in range(self._repetitions):
+                corr, _ = stats.pearsonr(rep_reads[idx], rep_reads[(idx + 1) % 3])
+                if round(corr, ndigits=2) < corr_coef:
+                    rep_reads[idx] = np.zeros(557)
+
+    def normalize_profiles(self):
+        for guide in self.lindel_profiles:
+            profile = self.lindel_profiles[guide]
+            profile.normalize()
+
+    def mse(self, file: str):
+        training = np.loadtxt(f'{self.work_dir + file}.txt', delimiter="\t", dtype=str)
+        seq_training = training[:, 0]
+        # Dont care about features/seq only profile rn
+        seq_valid = training[:, 1 + 3033:].astype('float32')
+        mse_dict = dict()
+        missed = 0
+        for i in range(0, len(training)):
+            if seq_training[i] in self.lindel_profiles:
+                diff = seq_valid[i] - self.lindel_profiles[seq_training[i]].labels
+                mse = np.mean(diff ** 2)
+                mse_dict[seq_training[i]] = mse
+            else:
+                missed += 1
+        if missed > 0:
+            print(f"Missed: {missed}")
+        return mse_dict
+
+    def write_profile(self, start_index=0, set_type='test', fraction=0.15):
+        filename = self.work_dir + "Our_Lindel_{0}.txt"
+        file = open(filename.format(set_type), 'w')
+        size = round(len(self) * fraction)
+        print(f"Writing {set_type} set of {size} entries")
+        index = 0
+        for profile in self.lindel_profiles.values():
+            if index < start_index:
+                index += 1
+                continue
+            elif index >= size:
+                break
+
+            train_matrix = create_train_matrix(profile.get_mh_input(), self.mh_features)
+            file.write(profile.guide)
+            file.write('\t')
+
+            for feature in train_matrix[1:]:
+                file.write(str(feature))
+                file.write('\t')
+
+            for label_idx, label in enumerate(profile.labels):
+                file.write(str(label))
+                if label_idx + 1 != len(profile.labels):
+                    file.write('\t')
+
+            if index + 1 != size:
+                file.write("\n")
+            index += 1
+        file.close()
+
+        return index
+
+    def __len__(self):
+        return len(self.lindel_profiles)
 
 
 if __name__ == '__main__':
+    # Construct profile generator
     generator = ProfileGenerator()
+
+    # Generate insertions based on rep matrices
     generator.generate_insertions()
-    # Loading final matrix data
-    # rep1 = pkl.load(open(workdir + 'NHEJ_rep1_final_matrix.pkl', 'rb'))
-    # rep2 = pkl.load(open(workdir + 'NHEJ_rep2_final_matrix.pkl', 'rb'))
-    # rep3 = pkl.load(open(workdir + 'NHEJ_rep3_final_matrix.pkl', 'rb'))
-    # # mh = pkl.load(open(workdir + 'NHEJ_MH_final_matrix.pkl', 'rb'))
-    # # combined = np.vstack([rep1, rep2, rep3])
-    # f2id = pkl.load(open(workdir + 'feature_index_all.pkl', 'rb'))
+
+    gen_len = len(generator)
+    print(f'Generated {gen_len} possible insertions')
+
+    # Filter pearson .75 and reads > 10
+    generator.filter_corr_coef(0.75)
+    generator.filter(lambda item: item.reads() > 10)
+    # Normalize
+    generator.normalize_profiles()
+
+    # Default writes test
+    idx = generator.write_profile(fraction=.1)
+    print(f'Wrote {idx} test entries')
+    generator.write_profile(start_index=idx, set_type='training', fraction=.9)
+    # from matplotlib import pyplot as plt
     #
-    # # Dictionaries for missing features and missing 200mers
-    # missingClasses = {}
-    # missingSequence = {}
+    # x_range_label = np.arange(0, 1 ** -2, 1 ** -4)
+    # x_range_label_str = list(map(lambda x: str(round(x, 1)), x_range_label))
+    # x_range = (10 ** -10) * x_range_label
+    # plt.hist(list(mses.values()), bins=round(len(mses) * 5), edgecolor='grey', alpha=0.4,
+    #          label="MSE occurrence", dpi=144, figsize=(10, 5))
+    # plt.xlim(0, 10 ** -5)
+    # plt.xlabel("MSE between Generated and Precomputed'")
+    # plt.ylabel("Count")
+    # plt.legend()
+    # plt.title(f"Comparison of {len(mses.values())} profiles ({4790 - len(mses)} were not found)")
+    # plt.show()
     #
-    # # Dictionaries for data
-    # r1 = indelevents(rep1)
-    # r2 = indelevents(rep2)
-    # r3 = indelevents(rep3)
-    #
-    # # Normalize events to generate probability density for indel classes
-    # # Remove entries with an insufficient number of reads
-    # th = 10
-    # r1 = normalize(threshold(r1, th))
-    # r2 = normalize(threshold(r2, th))
-    # r3 = normalize(threshold(r3, th))
+    # mses_list = list(mses.values())
+    # mses_list.sort()
+    # outliers = mses_list[:-100]
+    # mses_outliers = {(y, outliers.index(y)) if y in outliers else None for (x, y) in mses.items()}
+    # filter(lambda x: x is not None, mses_outliers)
+    # plt.scatter(mses_outliers[:, 0], mses_outliers[:, 1])
+    # plt.xlabel("MSE")
+    # plt.ylabel("100 outliers")
+    # plt.show()

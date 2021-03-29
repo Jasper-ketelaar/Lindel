@@ -23,8 +23,8 @@ def softmax(weights):
 
 def run_test_set(test_file, test_path):
     # Best performing models on the Lindel training set are l1 for insertions and deletions and l2 for indel
-    l1_insertion: Sequential = load_model(f'{test_path}/L1_insertion_model.h5')
-    l1_deletion: Sequential = load_model(f'{test_path}/L1_deletion_model.h5')
+    l1_insertion: Sequential = load_model(f'{test_path}/l1_insertion_model.h5')
+    l1_deletion: Sequential = load_model(f'{test_path}/l1_deletion_model.h5')
     l2_indel: Sequential = load_model(f'{test_path}/l2_indel_model.h5')
 
     test_data = np.loadtxt(test_file, delimiter="\t", dtype=str)
