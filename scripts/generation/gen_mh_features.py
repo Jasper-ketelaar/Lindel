@@ -1,4 +1,5 @@
 import numpy as np
+import scipy.sparse as sparse
 
 
 def label_mh(sample, mh_len):
@@ -138,3 +139,28 @@ def create_train_matrix(seq, features):
     sequence_features = onehotencoder(guide)
     res = np.concatenate((seq, mh_features, sequence_features), axis=None)
     return res
+
+
+def frameshift_dot(y, frame_shift):
+    return np.dot(y, frame_shift)
+
+
+def gen_cmatrix(indels, label):
+    ''' Combine redundant classes based on microhomology, matrix operation'''
+    combine = []
+    for s in indels:
+        if s[-2] == 'mh':
+            tmp = []
+            for k in s[-3]:
+                try:
+                    tmp.append(label['+'.join(list(map(str, k)))])
+                except KeyError:
+                    pass
+            if len(tmp) > 1:
+                combine.append(tmp)
+    temp = np.diag(np.ones(557), 0)
+    for key in combine:
+        for i in key[1:]:
+            temp[i, key[0]] = 1
+            temp[i, i] = 0
+    return sparse.csr_matrix(temp)

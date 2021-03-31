@@ -3,6 +3,7 @@ import numpy as np
 from deletion import DeletionModel
 from indel import IndelModel
 from insertion import InsertionModel
+from test_models import get_model
 
 data = np.loadtxt("../../cwd/Lindel_training.txt", delimiter="\t", dtype=str)
 
@@ -26,4 +27,4 @@ def train():
 
 
 if __name__ == '__main__':
-    train()
+    get_model('../../cwd/')
