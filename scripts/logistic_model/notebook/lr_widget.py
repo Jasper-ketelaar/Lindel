@@ -1,6 +1,5 @@
 from ipywidgets import VBox, Button, Layout, HTML
 from matplotlib import pyplot as plt
-from tensorflow.keras.utils import plot_model
 from tqdm.notebook import tqdm
 
 from scripts.logistic_model.model import LRModel

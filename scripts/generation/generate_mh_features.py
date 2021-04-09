@@ -1,6 +1,8 @@
 import numpy as np
 import scipy.sparse as sparse
 
+from scripts.logistic_model.model import one_hot_encoder
+
 
 def label_mh(sample, mh_len):
     '''Function to label microhomology in deletion events'''
@@ -97,34 +99,6 @@ def create_feature_array(ft, uniq_indels):
     return ft_array
 
 
-def onehotencoder(seq):
-    '''convert to single and di-nucleotide hotencode'''
-    nt = ['A', 'T', 'C', 'G']
-    head = []
-    l = len(seq)
-
-    # list all Single-Nucleotide seq-pos options ['N#'] (length = 4*L)
-    for k in range(l):
-        for i in range(4):
-            head.append(nt[i] + str(k))
-    # list all Di-Nucleotide seq-pos options ['NN#] (length = 16*(L-1))
-    for k in range(l - 1):
-        for i in range(4):
-            for j in range(4):
-                head.append(nt[i] + nt[j] + str(k))
-    head_idx = {}
-    # Dict: seq-label --> 1-hot index
-    for idx, key in enumerate(head):
-        head_idx[key] = idx
-    encode = np.zeros(len(head_idx))
-    # set applicable single and dinucleotide features to 1
-    for j in range(l):
-        encode[head_idx[seq[j] + str(j)]] = 1.
-    for k in range(l - 1):
-        encode[head_idx[seq[k:k + 2] + str(k)]] = 1.
-    return encode
-
-
 def create_train_matrix(seq, features):
     """
 
@@ -136,7 +110,7 @@ def create_train_matrix(seq, features):
     ind = gen_indel(seq, 30)
     guide = seq[13:33]
     mh_features = create_feature_array(features, ind)
-    sequence_features = onehotencoder(guide)
+    sequence_features = one_hot_encoder(guide)
     res = np.concatenate((seq, mh_features, sequence_features), axis=None)
     return res
 
